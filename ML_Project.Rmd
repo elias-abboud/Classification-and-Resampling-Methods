@@ -1,0 +1,507 @@
+---
+title: "Classification and Resampling Mathods"
+author: "by Elias Abboud"
+date: "2023-11-18"
+output:
+  html_document:
+    theme: readable
+    highlight: espresso
+    number_sections: no
+    toc: yes
+    toc_depth: 3
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+# Introduction
+
+In this project, several machine learning models were developed in order to predict car acceptability based on **six features**.
+
+1. Buying price of the car (V1)
+2. Price of the maintenance (V2)
+3. Number of doors (V3)
+4. Capacity in terms of persons to carry (V4)
+5. The size of the luggage boot (V5)
+6. Estimated safety of the car (V6)
+
+> The purpose is to work with multiple machine learning models, compare their performance, and analyze the relation between the variables and the response.
+
+#### 1. Install and load the required packages:
+
+Necessary R packages are installed and loaded. These packages include 'ggplot2' for data visualization, 'caret' for machine learning tools, 'glmnet', 'MASS', and 'class' for different machine learning algorithms, and 'pROC' for ROC curve analysis.
+
+```{r, echo=TRUE, results='hide', message=FALSE}
+if (!require(ggplot2)) install.packages("ggplot2")
+if (!require(caret)) install.packages("caret")
+if (!require(glmnet)) install.packages("glmnet")
+if (!require(MASS)) install.packages("MASS")
+if (!require(pROC)) install.packages("pROC")
+if (!require(class)) install.packages("class")
+if (!require(boot)) install.packages("boot")
+
+library(ggplot2)
+library(caret)
+library(glmnet)
+library(MASS)
+library(pROC)
+library(class)
+library(boot)
+```
+
+#### 2. Read the data from the csv file called *"DataAssign2.csv"*:
+
+This file contains 260 observations with six features and one response (output) variable, the acceptability of the car (bad/good).
+After we read the file of categorical data, the first task is to convert that data to numerical.
+
+__The encoding of the data was done as follows:__
+
+* "low" _{V1-V2-V6}_, "2" _{V3-V4}_, and "small" _{V5}_ were encoded as __0__.
+* "med" _{V1-V2-V5-V6}_, "3" _{V3}_, and "4" _{V4}_ were encoded as __1__.
+* "high" _{V1-V2-V6}_, "4" _{V3}_, "more" _{V4}_, "big" _{V5}_ were encoded as __2__.
+* "vhigh" _{V1-V2}_, "5more" _{V3}_ were encoded as __3__.
+
+```{r, echo=TRUE}
+# Reading the dataset
+data_set <- read.csv("DataAssign2.csv")
+```
+
+This part converts categorical data in the dataset to numerical form based on specific encoding rules for each variable (V1 to V6).
+The encoding is done to prepare the data for machine learning algorithms that require numerical input.
+
+```{r, echo=TRUE}
+# Converting from categorical to numerical data
+var_orders <- list(
+  V1 = c("low", "med", "high", "vhigh"),
+  V2 = c("low", "med", "high", "vhigh"),
+  V3 = c("2", "3", "4", "5more"),
+  V4 = c("2", "4", "more"),
+  V5 = c("small", "med", "big"),
+  V6 = c("low", "med", "high"),
+  V7 = c("bad", "good")
+)
+
+for (col_name in names(var_orders)) {
+  data_set[[paste0(col_name)]] <- as.numeric(factor(data_set[[col_name]], levels = var_orders[[col_name]])) - 1
+}
+
+summary(data_set)
+```
+
+# Exploring the Data Graphically
+
+This section creates visualizations (histograms) for each of the six features, grouped by car acceptability. The purpose is to visually explore the distribution of each feature concerning the response variable.
+
+#### 1. Buying Price of the Car Graph
+
+```{r, echo=TRUE}
+# Split histogram for V1: Buying price of the car:
+ggplot(data_set, aes(x = as.factor(V1), fill = as.factor(V7))) +
+  geom_bar() +
+  labs(title = "Car Price VS Acceptability", x = "Buying Price", y = "Acceptability Count") +
+  scale_fill_manual(values = c("0" = "coral", "1" = "navy"), labels = c("0" = "bad", "1" = "good")) +
+  scale_x_discrete(labels = var_orders$V1) +
+  facet_grid(V7 ~ .)
+```
+
+The higher the price of the car, the higher the count of acceptability, indicating the considerable influence and significance of the car's buying price on its acceptability.
+
+#### 2. Maintenance Cost Graph
+
+```{r, echo=TRUE}
+# Split histogram for V2: Price of the maintenance:
+ggplot(data_set, aes(x = as.factor(V2), fill = as.factor(V7))) +
+  geom_bar() +
+  labs(title = "Maintenance Cost VS Acceptability", x = "Maintenance Cost", y = "Acceptability Count") +
+  scale_fill_manual(values = c("0" = "coral", "1" = "navy"), labels = c("0" = "bad", "1" = "good")) +
+  scale_x_discrete(labels = var_orders$V1) +
+  facet_grid(V7 ~ .)
+```
+
+The car's maintenance price has a significant impact on its acceptability as the graph indicates that the acceptability count tends to be higher for higher maintenance prices. 
+
+#### 3. Number of Doors Graph
+
+```{r, echo=TRUE}
+# Split histogram for V3: Number of doors:
+ggplot(data_set, aes(x = as.factor(V3), fill = as.factor(V7))) +
+  geom_bar() +
+  labs(title = " Car Door Number VS Acceptability", x = "Car Door Number", y = "Acceptability Count") +
+  scale_fill_manual(values = c("0" = "coral", "1" = "navy"), labels = c("0" = "bad", "1" = "good")) +
+  scale_x_discrete(labels = var_orders$V1) +
+  facet_grid(V7 ~ .)
+```
+
+The variable (number of doors) does not demonstrate a correlation with the responses. Both positive and negative responses (good/bad) exhibit minimal fluctuations with changes in the number of doors. Consequently, it appears that this particular variable may not contribute significantly to predicting the car's acceptability.
+
+#### 4. Capacity in Terms of Individuals to Carry Graph
+
+```{r, echo=TRUE}
+# Split histogram for V4: Capacity in terms of persons to carry:
+ggplot(data_set, aes(x = as.factor(V4), fill = as.factor(V7))) +
+  geom_bar() +
+  labs(title = "Car Individuals Capacity VS Acceptability", x = "Car Individuals Capacity", y = "Acceptability Count") +
+  scale_fill_manual(values = c("0" = "coral", "1" = "navy"), labels = c("0" = "bad", "1" = "good")) +
+  scale_x_discrete(labels = var_orders$V1) +
+  facet_grid(V7 ~ .)
+```
+
+According to the histogram, this variable may be useful as it seems that a higher capacity for the car is associated with higher counts of acceptability, suggesting a potential correlation.
+
+#### 5. Size of Luggage Boot Graph
+
+```{r, echo=TRUE}
+# Split histogram for V5: Size of the luggage boot:
+ggplot(data_set, aes(x = as.factor(V5), fill = as.factor(V7))) +
+  geom_bar() +
+  labs(title = "Car Luggage Boot Size VS Acceptability", x = "Car Luggage Boot Size", y = "Acceptability Count") +
+  scale_fill_manual(values = c("0" = "coral", "1" = "navy"), labels = c("0" = "bad", "1" = "good")) +
+  scale_x_discrete(labels = var_orders$V1) +
+  facet_grid(V7 ~ .)
+```
+
+Another useful variable. Positive responses show an upward trend with an increase in luggage boot size, suggesting a potential correlation between a larger luggage boot size and higher acceptability counts. 
+
+#### 6. Estimated Car Safety Graph
+
+```{r, echo=TRUE}
+# Split histogram for V6: Estimated safety of the car:
+ggplot(data_set, aes(x = as.factor(V6), fill = as.factor(V7))) +
+  geom_bar() +
+  labs(title = "Car Estimated Safety VS Acceptability", x = "Car Estimated Safety", y = "Acceptability Count") +
+  scale_fill_manual(values = c("0" = "coral", "1" = "navy"), labels = c("0" = "bad", "1" = "good")) +
+  scale_x_discrete(labels = var_orders$V1) +
+  facet_grid(V7 ~ .)
+```
+
+A higher level of car safety is associated with a higher count of acceptability compared to instances of low safety, highlighting the considerable importance and impact of the car's safety on its acceptability.
+
+# Splitting the Dataset
+
+The dataset is split into training (80%) and testing sets (20%) using the _'createDataPartition'_ function. The dimensions of both sets are displayed to confirm the splitting process.
+
+```{r, echo=TRUE}
+set.seed(123)# for reproducibility
+
+trainIndex <- createDataPartition(data_set$V7, p = 0.8, list = FALSE)
+train_data <- data_set[trainIndex, ]
+test_data <- data_set[-trainIndex, ]
+
+# Displaying the dimensions of the training set:
+dim(train_data)
+
+# Displaying the dimensions of the test set:
+dim(test_data)
+```
+
+# Logistic Regression
+
+These sections involve fitting a logistic regression model to the training data, refining the model based on significant predictors, predicting on the test data, computing test error, analyzing the statistical significance of predictors, and generating a confusion matrix to evaluate model performance.
+
+#### 1. Fitting Logistic Regression Model
+
+```{r, echo=TRUE}
+# Fit logistic regression model using glm:
+glm_model <- glm(V7 ~ ., data = train_data, family = binomial())
+summary(glm_model)
+```
+
+Among the predictors, V1, V2, V5, and V6 have significant p-values, indicating their importance in predicting the response variable, with V1 having the most significant p-value.
+V3 and V4 have high p-values, suggesting that they may not be statistically significant predictors. The p-values of V1, V2, V3, V5 and V6 aligned with the graphical results, which is not the case for V4 which seemed to be a useful variable in our graphical exploration of the data. 
+
+#### 2. Re-fitting Logistic Regression Model _"Significant p-Value"_
+
+```{r, echo=TRUE}
+# Re-fitting the logistic regression based on the significant predictors:
+glm_remodel <- glm(V7 ~ V1 + V2 + V5 + V6, data = train_data, family = binomial)
+summary(glm_remodel)
+```
+
+To address potential issues with the initial model, a refined logistic regression model is created using only the predictors with significant p-values from the initial model (V1, V2, V5, V6). These variables remain significant predictors with low p-values.
+
+#### 3. Prediction on Test Data
+
+```{r, echo=TRUE}
+# Predicting on test data:
+test_pred_prob <- predict(glm_remodel, newdata = test_data, type = "response")
+test_pred_class <- ifelse(test_pred_prob > 0.5, 1, 0) 
+```
+
+The logistic regression model is used to predict the response variable on the test data. The predicted probabilities ('test_pred_prob') are then converted into predicted classes ('test_pred_class') using a threshold of 0.5. 
+
+#### 4. Test Error
+
+```{r, echo=TRUE}
+# Compute test error:
+test_error <- mean(test_pred_class != test_data$V7)
+test_error
+# The test error value (1.92%) indicates a high level of accuracy in predicting the car acceptability based on the selected predictors.
+
+# Check statistical significance of predictors:
+summary(glm_remodel)
+```
+
+#### 5. Confusion Matrix & Accuracy
+
+```{r, echo=TRUE}
+# Compute the confusion matrix:
+test_pred_label <- ifelse(test_pred_class == 1, "good", "bad")
+actual_label <- ifelse(test_data$V7 == 1, "good", "bad")
+
+conf_matrix <- table(Predicted = test_pred_label, Actual = actual_label)
+conf_matrix
+
+# Calculate overall fraction of correct predictions:
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+accuracy
+```
+
+The confusion matrix shows that there are 25 true negatives, 26 true positives, 1 false positive, and 0 false negatives. The accuracy is found to be approximately 98%, indicating a high level of correct predictions. Both recall and precision are very high in this case. 
+
+# Linear Discriminant Analysis "LDA"
+
+Similar to logistic regression, these sections involve fitting an LDA model, The model was built exclusively on the selected predictors, namely V1, V2, V5, and V6, which are the variables found useful for the analysis.
+
+#### 1. LDA Model
+
+```{r, echo=TRUE}
+# LDA Model
+lda_model <- lda(V7 ~ V1 + V2 + V5 + V6, data = train_data)
+lda_pred <- predict(lda_model, newdata = test_data)
+lda_class <- lda_pred$class
+lda_prob <- lda_pred$posterior[,2]  # Probability for class 'good'
+summary(lda_prob)
+```
+
+> These values provide insights into the variation and central tendency of the model's confidence in predicting the class 'good' for the test instances.
+
+```{r, echo=TRUE}
+# Convert numeric predictions back to factor labels for LDA
+lda_pred_labels <- ifelse(lda_class == 1, "good", "bad")
+
+# Convert actual labels back to factor labels
+actual_labels <- ifelse(test_data$V7 == 1, "good", "bad")
+```
+
+#### 2. LDA Confusion Matrix
+
+```{r, echo=TRUE}
+# Confusion matrix for LDA
+lda_conf_matrix <- table(Predicted = lda_pred_labels, Actual = actual_labels)
+print("LDA Confusion Matrix:")
+print(lda_conf_matrix)
+```
+
+Based on the results of the confusion matrix, the LDA model achieves high accuracy, high precision and a high recall. However, these values are not better than those obtained from a logistic regression model.
+
+# Quadratic Discriminant Analysis "QDA"
+
+This section focus on fitting a QDA model and evaluating its performance.
+
+#### 1. QDA Model
+
+```{r, echo=TRUE}
+# QDA Model
+qda_model <- qda(V7 ~ V1 + V2 + V5 + V6, data = train_data)
+qda_pred <- predict(qda_model, newdata = test_data)
+qda_class <- qda_pred$class
+qda_prob <- qda_pred$posterior[,2]  # Probability for class 'good'
+summary(qda_prob)
+```
+
+```{r, echo=TRUE}
+# Convert numeric predictions back to factor labels for QDA
+qda_pred_labels <- ifelse(qda_class == 1, "good", "bad")
+```
+
+#### 2. QDA Confusion Matrix
+
+```{r, echo=TRUE}
+# Confusion matrix for QDA
+qda_conf_matrix <- table(Predicted = qda_pred_labels, Actual = actual_labels)
+print("QDA Confusion Matrix:")
+print(qda_conf_matrix)
+```
+
+#### 3. ROC Curve & AUC
+
+```{r, echo=TRUE}
+# Function to compute ROC curve and AUC
+compute_auc_and_plot_roc <- function(actual, predicted_prob, model_name) {
+  roc_obj <- roc(actual, predicted_prob)
+  auc_value <- auc(roc_obj)
+  plot(roc_obj, main = paste(model_name, "- ROC curve (AUC =", round(auc_value, 2), ")"))
+  return(auc_value)
+}
+```
+
+```{r, echo=TRUE}
+# Compute and plot ROC curve and AUC for Logistic Regression
+glm_auc <- compute_auc_and_plot_roc(test_data$V7, test_pred_prob, "Logistic Regression")
+
+# Compute and plot ROC curve and AUC for LDA
+lda_auc <- compute_auc_and_plot_roc(test_data$V7, lda_prob, "LDA")
+
+# Compute and plot ROC curve and AUC for QDA
+qda_auc <- compute_auc_and_plot_roc(test_data$V7, qda_prob, "QDA")
+
+# Print AUC values for comparison
+print(paste("Logistic Regression AUC:", round(glm_auc, 2)))
+print(paste("LDA AUC:", round(lda_auc, 2)))
+print(paste("QDA AUC:", round(qda_auc, 2)))
+```
+
+The confusion matrix for QDA suggests an accuracy value of ~96.15%.
+The AUC values for the Logistic Regression, LDA, and QDA models are computed and plotted on the ROC curves. The AUC values are as follows:
+Logistic Regression AUC: 0.98
+LDA AUC: 0.98
+QDA AUC: 1
+The AUC values measure the models' ability to distinguish between the positive and negative classes. A higher AUC indicates better model performance. In this case, the QDA model has an AUC of 1, suggesting perfect discrimination between the classes.
+
+# k-Nearest Neighbors "kNN"
+
+This part involves performing k-Nearest Neighbors (kNN) classification on the dataset using different values of k: 1, 5, 10, 25, 35, 50, 65, 75, 85 and 100.
+
+#### 1. Preparing the Data
+
+```{r, echo=TRUE}
+set.seed(1) # for reproducibility
+
+# Preparing the data:
+train_set <- subset(train_data, select = c("V1", "V2", "V5", "V6", "V7"))
+test_set <- subset(test_data, select = c("V1", "V2", "V5", "V6", "V7"))
+
+# Converting V7 in train_set and test_set to factors with labels 'bad' and 'good':
+train_set$V7 <- factor(train_set$V7, levels = c(0, 1), labels = c("bad", "good"))
+test_set$V7 <- factor(test_set$V7, levels = c(0, 1), labels = c("bad", "good"))
+
+# Binding the predictors into matrices:
+bind_trainX <- cbind(train_set$V1, train_set$V2, train_set$V5, train_set$V6)
+bind_testX <- cbind(test_set$V1, test_set$V2, test_set$V5, test_set$V6)
+```
+
+#### 2. Applying kNN for multiple values of k
+
+```{r, echo=TRUE}
+# Running kNN Models for different values of K:
+k_values <- c(1, 5, 10, 25, 35, 50, 65, 75, 85, 100)
+kNN_models <- lapply(k_values, function(k) {
+    knn(bind_trainX, bind_testX, train_set$V7, k)
+})
+```
+
+#### 3. Confusion Matrices, Accuracies, & Test Errors
+
+```{r, echo=TRUE}
+# Initializing vectors to store accuracies and test errors:
+accuracies <- numeric(length(k_values))
+test_errors <- numeric(length(k_values))
+
+# Analyzing and printing results for each kNN model:
+print("Confusion Matricies, Accuracies, and Test Errors:")
+for (i in seq_along(kNN_models)) {
+    cat("\nFor K =", k_values[i], ":\n")
+
+    # Confusion Matrix:
+    conf_matrix <- table(Predicted = kNN_models[[i]], Actual = test_set$V7)
+    print(conf_matrix)
+
+    # Accuracy:
+    accuracies[i] <- mean(kNN_models[[i]] == test_set$V7)
+    cat("Accuracy:", accuracies[i], "\n")
+
+    # Test Error:
+    test_errors[i] <- mean(kNN_models[[i]] != test_set$V7)
+    cat("Test Error:", test_errors[i], "\n")
+}
+```
+
+```{r, echo=TRUE}
+# Printing the summary of accuracies and test errors:
+print("Summary of Accuracies:")
+print(accuracies)
+
+print("Summary of Test Errors:")
+print(test_errors)
+```
+
+#### 4. Graphical Representation of the kNN Performance for Each Value of k
+
+```{r, echo=TRUE}
+# Graphical representation of the KNN results for each value of k
+
+# Calculate accuracy for K values from 1 to 50
+k_values = 1:50
+k_optm = numeric(length(k_values))
+
+for (i in k_values) {
+  knn_pred = knn(bind_trainX, bind_testX, train_set$V7, k = i)
+  k_optm[i] = mean(knn_pred == test_set$V7)
+}
+
+# Plotting the accuracy against K values
+plot(k_optm, type = "b", xlab = "K-Value", ylab = "Accuracy Level", col = "black", pch = 19)
+```
+
+Among the various values of k evaluated for accuracy, K=1 shows the highest accuracy levels between all k values, however this choice of k is generally avoided due to the risk of over-fitting. K = 25 and K = 35 exhibit comparable high accuarcy levels, after k=1. 
+Visualizing the graph, there is a general trend of decreasing accuracy as k increase and the values of K=25 or K=35 stand out as points with very high accuracy values making these reasonable choices.
+
+# 5-Fold Cross Validation
+
+A function is defined to perform 5-fold cross-validation for a QDA model since it showed to outperform other methods with teh best performance. 
+
+```{r, echo=TRUE}
+cross_validate_qda <- function(dataset, target_col = "V7", num_folds = 5, seed = 12) {
+    set.seed(seed)
+    n <- nrow(dataset)
+    indices <- sample(rep(1:num_folds, length.out = n))
+
+    error_rates <- numeric(num_folds)
+
+    for (i in 1:num_folds) {
+        test_idx <- which(indices == i)
+        train_idx <- setdiff(seq_len(n), test_idx)
+
+        train_data <- dataset[train_idx, ]
+        test_data <- dataset[test_idx, ]
+
+        # Fit QDA model
+        qda_fit <- qda(as.formula(paste(target_col, "~ .")), data = train_data)
+
+        # Predictions and calculating error rate
+        predictions <- predict(qda_fit, test_data)$class
+        error_rates[i] <- mean(predictions != test_data[, target_col])
+    }
+
+    avg_error_rate <- mean(error_rates) * 100
+    return(list(AverageErrorRate = avg_error_rate))
+}
+
+# Applying the function on your data
+cv_result <- cross_validate_qda(data_set, target_col = "V7")
+cv_result
+```
+
+The 5-fold cross-validation results for the Quadratic Discriminant Analysis (QDA) model indicate an average error rate of approximately 2.31%. 
+
+# The Bootstrap
+
+```{r, echo=TRUE}
+# Bootstrap Function:
+bootstrap_funct = function(data_set, index){
+  return(coef(glm(V7 ~ V1 + V2 + V5 + V6, data = data_set, family = binomial, subset = index)))
+}
+
+bootstrap_funct(data_set, 1:260)
+```
+
+```{r, echo=TRUE}
+boot(data_set, bootstrap_funct, R = 10)
+```
+
+# Conclusion
+
+Overall, the models performed well in predicting car acceptability. Logistic regression and LDA showed consistently high performance. kNN performed well, with K=25 or K=35 being optimal choices.QDA demonstrated perfect discrimination and a higher AUC values than the other models which makes QDA the best performing model.
