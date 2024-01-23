@@ -1,0 +1,2 @@
+- This project was done for a Data Mining course
+- It aimed to develop machine learning models to predict "Car Acceptability" based on multiple features
